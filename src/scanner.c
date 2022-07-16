@@ -185,7 +185,6 @@ void *scan_range(struct scan_args *args) {
 	for (current_port = start_port ; current_port <= end_port ; current_port++) {
 		if ((rv = getaddrinfo(args->hostname, svc_list[current_port - 1].port, &hints, &servinfo)) != 0) {
 			fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-			// return 1;
 		}
 
 		p = servinfo;
@@ -212,7 +211,6 @@ void *scan_range(struct scan_args *args) {
 
 		if (p == NULL) {
 			fprintf(stderr, "client: failed to connect\n");
-			// return 2;
 		}
 
 		inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
@@ -237,28 +235,42 @@ int main(int argc, char *argv[])
 	int syn_scan = 1;
 	const int synRetries = 1;
 
-	int max_threads = 12;
+	int max_threads = 8;
 	int nb_threads;
 	pthread_t num_thread[nb_threads];
 
-	if (argc < 2 || argc > 4 || argc == 3) {
-	    fprintf(stderr,"\033[31;1;4mUSER ERROR:\033[0m Wrong number of arguments\n\nusage: scanner hostname [port_range_start port_range_end]\n\nNote: the default range is 1-1024\n");
+	start_port = 1;
+	end_port = 1024;
+
+	if (argc > 2) {
+		for(int i = 2 ; i < argc - 1 ; i++) {
+			if(strcmp(argv[i], "-sp") == 0 || strcmp(argv[i], "--startport") == 0) {
+				printf("NOK\n");
+				start_port = atoi(argv[i+1]);
+				i++;
+			} else if(strcmp(argv[i], "-ep") == 0 || strcmp(argv[i], "--endport") == 0) {
+				end_port = atoi(argv[i+1]);
+				i++;
+			} else if(strcmp(argv[i], "-mth") == 0|| strcmp(argv[i], "--maxthreads") == 0) {
+				max_threads = argv[i+1];
+				i++;
+			} else {
+				fprintf(stderr, "\033[31;1;4mUSER ERROR:\033[0m Unknown argument: %s\n", argv[i]);
+				exit(1);
+			}
+
+		}
+	} else if (argc < 2 && argc > 8) {
+		fprintf(stderr,"\033[31;1;4mUSER ERROR:\033[0m Wrong number of arguments\n\nusage: scanner hostname [port_range_start port_range_end]\n\nNote: the default range is 1-1024\n");
 	    exit(1);
 	}
-
-	if (argc == 4) {
-		start_port = atoi(argv[2]);
-		end_port = atoi(argv[3]);
 		
-		if (start_port < 1 && end_port > 65535 && end_port < start_port && start_port > end_port) {
-			fprintf(stderr, "\033[31;1;4mUSER ERROR:\033[0m port range must be within 1-65535 (cf: RFC 1700)\n");
-			exit(1);
-		}
-	} else {
-		start_port = 1;
-		end_port = 1024;
+	if (start_port < 1 && end_port > 65535 && end_port < start_port && start_port > end_port) {
+		fprintf(stderr, "\033[31;1;4mUSER ERROR:\033[0m port range must be within 1-65535 (cf: RFC 1700)\n");
+		exit(1);
 	}
 
+	printf("START: %d\n", start_port);
 
 	svc_list = malloc(((end_port - start_port) + 1) * sizeof(struct service));
 	get_svc_list(svc_list, start_port, end_port);
@@ -293,10 +305,11 @@ int main(int argc, char *argv[])
 		args->end_port = last_end_port + port_slice;
 		printf("START: %d\n", args->start_port);
 		printf("END: %d\n", args->end_port);
-		if (args->end_port <= end_port) {
-			if(pthread_create(&num_thread[i], NULL, scan_range, args) == -1) {
-				perror("Cannot create thread\n");
-			}
+		if (args->end_port > end_port) {
+			args->end_port = end_port;
+		}
+		if(pthread_create(&num_thread[i], NULL, scan_range, args) == -1) {
+			perror("Cannot create thread\n");
 		}
 		i++;
 		last_end_port = args->end_port + 1;
