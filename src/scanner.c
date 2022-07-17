@@ -67,10 +67,10 @@ int get_svc_list(struct service *svc_list, int start_port, int end_port) {
 		return EXIT_FAILURE;
 	}
 	
-	// Bulding initial service/port map with default "unkown" svc_name
-	for(int j = (start_port - 1) ; j < end_port ; j++) {
+	// Bulding initial service/port map with default "unknown" svc_name
+	for(int j = 0 ; j < ((end_port - start_port) + 1) ; j++) {
 		struct service *svc = malloc(sizeof(struct service));
-		sprintf(svc->port, "%d", j+1);
+		sprintf(svc->port, "%d", start_port + j);
 		strcpy(svc->svc_name, "unknown");
 		svc_list[j] = *svc;
 	}
@@ -89,7 +89,10 @@ int get_svc_list(struct service *svc_list, int start_port, int end_port) {
 	char  line_port[8];
 	char  line_svc_name[32];
 	int p_index;
-	
+	printf("TEST1\n");
+	// sizeof(line);
+	fgets(line, sizeof(line), services_file);
+	printf("TEST2\n");
 	while (fgets(line, sizeof(line), services_file) != NULL) {
 		if(! strstr(line, "/tcp")) continue;
 
@@ -120,7 +123,7 @@ int get_svc_list(struct service *svc_list, int start_port, int end_port) {
 		port = atoi(line_port);
 
 		if (port >= start_port && port <= end_port) {
-			strcpy(svc_list[port - 1].svc_name, line_svc_name);
+			strcpy(svc_list[port - start_port].svc_name, line_svc_name);
 		} else if (port > end_port) {
 			break;
 		}
@@ -156,7 +159,7 @@ void *display(struct service *svc_list, int start, int end) {
 		"PORT\tSTATE\tSERVICE\n"
 		"-----------------------\n"
 	);
-	for(int i = start ; i < end ; i++) {
+	for(int i = 0 ; i < ((end - start) + 1) ; i++) {
 		char state_string[8];
 		if (svc_list[i].state == 1 && choice != 2) {
 			printf("%s\t\033[92;1mopened\033[0m\t%s\n", svc_list[i].port, svc_list[i].svc_name);
@@ -195,8 +198,8 @@ void *scan_range(struct scan_args *args) {
 	int current_port;
 	for (current_port = start_port ; current_port <= end_port ; current_port++) {
 		printf("%s\n", args->hostname);
-		printf("PORT: %s\n",  svc_list[current_port - 1].port);
-		if ((rv = getaddrinfo(args->hostname, svc_list[current_port - 1].port, &hints, &servinfo)) != 0) {
+		printf("PORT: %s\n",  svc_list[current_port - start_port].port);
+		if ((rv = getaddrinfo(args->hostname, svc_list[current_port - start_port].port, &hints, &servinfo)) != 0) {
 			fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		}
 
@@ -213,11 +216,11 @@ void *scan_range(struct scan_args *args) {
 		}
 
 		if (connect(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
-			args->svc_list[current_port - 1].state = 0;
+			args->svc_list[current_port - start_port].state = 0;
 			close(sockfd);
 			continue;
 		} else {
-			args->svc_list[current_port - 1].state = 1;
+			args->svc_list[current_port - start_port].state = 1;
 			close(sockfd);
 			continue;
 		}
@@ -247,7 +250,7 @@ int main(int argc, char *argv[])
 	struct service *svc_list;
 	
 	int max_threads = 1; // Maximum number of available threads (can be changed via command argument)
-	int nb_threads; // Final number of threads used to run the program
+	int nb_threads = 1; // Final number of threads used to run the program
 	pthread_t num_thread[nb_threads];
 
 	// Default port range
@@ -296,24 +299,22 @@ int main(int argc, char *argv[])
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	nb_threads = max_threads;
 	int nb_ports = (end_port - start_port) + 1;
 
 	// Finding the optimal number of threads for the current range (below the max threads value)
 	int remainder = nb_ports % max_threads;
-	while(remainder != 0) {
+	while(remainder != 0 && max_threads < nb_ports) {
 		nb_ports = max_threads;
 		nb_threads = remainder;
 		remainder = nb_ports % max_threads;
 	}
-	if(nb_threads > max_threads) {
-		nb_threads = 1;
-	}
 
 	int port_slice = (end_port - start_port) / nb_threads;
+	printf("SLICE: %d\n", port_slice);
+	printf("TH: %d\n", nb_threads);
 	int last_end_port = start_port;
 	int i = 0;
-
+	
 	printf("Scanning in progress...\n\n");
 	for(int i = 0 ; i < nb_threads ; i++) {
 		struct scan_args *args = malloc(2 * sizeof(int) + sizeof(svc_list) + sizeof(argv[1]) + sizeof(hints));
@@ -331,15 +332,15 @@ int main(int argc, char *argv[])
 			perror("Cannot create thread\n");
 		}
 		last_end_port = args->end_port + 1;
-		args-start_port++;
+		args->start_port++;
 	}
 
 	for(int j = 0 ; j < nb_threads ; j++) {
 		pthread_join(num_thread[j], NULL);
 	}
 
-	display(svc_list, start_port - 1, end_port);
-	// free(svc_list);
+	display(svc_list, start_port, end_port);
+	free(svc_list);
 	return 0;
 }
 
