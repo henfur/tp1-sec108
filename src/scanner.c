@@ -1,5 +1,7 @@
 /*
-** client.c -- a stream socket client demo
+** SEC108 - TP1 - PORT SCANNER
+** Author: Amaury JASPAR
+** Base file from: https://beej.us/guide/bgnet/examples/client.c
 */
 
 #include <stdio.h>
@@ -27,6 +29,14 @@ struct service
 	int state; // 0 -> CLOSED, 1 -> OPEN
 };
 
+struct scan_args {
+	struct service *svc_list;
+	char *hostname;
+	int start_port;
+	int end_port;
+	struct addrinfo hints;
+};
+
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)
@@ -34,7 +44,6 @@ void *get_in_addr(struct sockaddr *sa)
 	if (sa->sa_family == AF_INET) {
 		return &(((struct sockaddr_in*)sa)->sin_addr);
 	}
-
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
@@ -80,7 +89,6 @@ int get_svc_list(struct service *svc_list, int start_port, int end_port) {
 	char  line_port[8];
 	char  line_svc_name[32];
 	int p_index;
-
 	
 	while (fgets(line, sizeof(line), services_file) != NULL) {
 		if(! strstr(line, "/tcp")) continue;
@@ -158,16 +166,19 @@ void *display(struct service *svc_list, int start, int end) {
 	}
 }
 
-struct scan_args {
-	struct service *svc_list;
-	char *hostname;
-	int start_port;
-	int end_port;
-	struct addrinfo hints;
-};
 
+/**
+ * @brief Scan the given range of ports
+ * 
+ * @param args struct of arguments
+ * svc_list: pointer to the list of service to be updated
+ * start_port: start of the port scan range
+ * end_port: end of the port scan range
+ * hints: connection information
+ * @return void* 
+ */
 void *scan_range(struct scan_args *args) {
-	int sockfd, numbytes;  
+	int sockfd;  
 	struct addrinfo *servinfo, *p;
 	int rv;
 	char s[INET6_ADDRSTRLEN];
@@ -183,6 +194,8 @@ void *scan_range(struct scan_args *args) {
 
 	int current_port;
 	for (current_port = start_port ; current_port <= end_port ; current_port++) {
+		printf("%s\n", args->hostname);
+		printf("PORT: %s\n",  svc_list[current_port - 1].port);
 		if ((rv = getaddrinfo(args->hostname, svc_list[current_port - 1].port, &hints, &servinfo)) != 0) {
 			fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		}
@@ -217,42 +230,41 @@ void *scan_range(struct scan_args *args) {
 				s, sizeof s);
 
 		freeaddrinfo(servinfo); // all done with this structure
-		
+
 		close(sockfd);
 	}
+	free(args);
 }
 
 int main(int argc, char *argv[])
 {
-	int sockfd, numbytes;  
+	int sockfd;
 	struct addrinfo hints, *servinfo, *p;
 	int rv;
 	char s[INET6_ADDRSTRLEN];
 	int start_port, end_port;
 	char port[8];
 	struct service *svc_list;
-
-	int syn_scan = 1;
-	const int synRetries = 1;
-
-	int max_threads = 8;
-	int nb_threads;
+	
+	int max_threads = 1; // Maximum number of available threads (can be changed via command argument)
+	int nb_threads; // Final number of threads used to run the program
 	pthread_t num_thread[nb_threads];
 
+	// Default port range
 	start_port = 1;
 	end_port = 1024;
 
+	// Arguments parsing
 	if (argc > 2) {
 		for(int i = 2 ; i < argc - 1 ; i++) {
 			if(strcmp(argv[i], "-sp") == 0 || strcmp(argv[i], "--startport") == 0) {
-				printf("NOK\n");
 				start_port = atoi(argv[i+1]);
 				i++;
 			} else if(strcmp(argv[i], "-ep") == 0 || strcmp(argv[i], "--endport") == 0) {
 				end_port = atoi(argv[i+1]);
 				i++;
 			} else if(strcmp(argv[i], "-mth") == 0|| strcmp(argv[i], "--maxthreads") == 0) {
-				max_threads = argv[i+1];
+				max_threads = atoi(argv[i+1]);
 				i++;
 			} else {
 				fprintf(stderr, "\033[31;1;4mUSER ERROR:\033[0m Unknown argument: %s\n", argv[i]);
@@ -264,39 +276,46 @@ int main(int argc, char *argv[])
 		fprintf(stderr,"\033[31;1;4mUSER ERROR:\033[0m Wrong number of arguments\n\nusage: scanner hostname [port_range_start port_range_end]\n\nNote: the default range is 1-1024\n");
 	    exit(1);
 	}
-		
+	
+	// Value error handling
 	if (start_port < 1 && end_port > 65535 && end_port < start_port && start_port > end_port) {
 		fprintf(stderr, "\033[31;1;4mUSER ERROR:\033[0m port range must be within 1-65535 (cf: RFC 1700)\n");
 		exit(1);
+	} else if (start_port == end_port) {
+		fprintf(stderr, "\033[31;1;4mUSER ERROR:\033[0m end port must be greater than start port (cf: RFC 1700)\n");
+		exit(1);
 	}
 
-	printf("START: %d\n", start_port);
-
+	// Create and fill the list of possibles services (servine name / port)
 	svc_list = malloc(((end_port - start_port) + 1) * sizeof(struct service));
-	get_svc_list(svc_list, start_port, end_port);
+	if (get_svc_list(svc_list, start_port, end_port) == 1) {
+		exit(1);
+	}
 
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	printf("Scanning in progress...\n\n");
-	
-
 	nb_threads = max_threads;
 	int nb_ports = (end_port - start_port) + 1;
 
+	// Finding the optimal number of threads for the current range (below the max threads value)
 	int remainder = nb_ports % max_threads;
 	while(remainder != 0) {
 		nb_ports = max_threads;
 		nb_threads = remainder;
 		remainder = nb_ports % max_threads;
 	}
+	if(nb_threads > max_threads) {
+		nb_threads = 1;
+	}
 
 	int port_slice = (end_port - start_port) / nb_threads;
 	int last_end_port = start_port;
 	int i = 0;
-	while (i < nb_threads){
-		printf("%d\n",i);
+
+	printf("Scanning in progress...\n\n");
+	for(int i = 0 ; i < nb_threads ; i++) {
 		struct scan_args *args = malloc(2 * sizeof(int) + sizeof(svc_list) + sizeof(argv[1]) + sizeof(hints));
 		args->svc_list = svc_list;
 		args->hostname = argv[1];
@@ -311,7 +330,6 @@ int main(int argc, char *argv[])
 		if(pthread_create(&num_thread[i], NULL, scan_range, args) == -1) {
 			perror("Cannot create thread\n");
 		}
-		i++;
 		last_end_port = args->end_port + 1;
 		args-start_port++;
 	}
@@ -321,6 +339,7 @@ int main(int argc, char *argv[])
 	}
 
 	display(svc_list, start_port - 1, end_port);
+	// free(svc_list);
 	return 0;
 }
 
