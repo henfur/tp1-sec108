@@ -8,15 +8,16 @@ Le scanner prend jusqu'à 3 arguments:
 * `-ep <dernier port à scanner>` ou `--endport <dernier port à scanner>` 
 * `-mt <nb max de threads à utiliser>` ou `--maxthreads <nb max de threads à utiliser>` 
 
+**Attention:** Par défaut (sans argument), le scan sera réalisé sur les 1024 premiers ports du host sur un seul thread.
+
 **Exemple:**
 
 ```
 # Scan complet de google.com (assez long)
-bin/scanner -sp 1 -ep 65535
+bin/scanner google.com -sp 1 -ep 65535
 
 # Scan multithread
-
-bin/scanner -sp 1 -ep 65535 --maxthreads 32
+bin/scanner google.com -sp 1 -ep 65535 --maxthreads 32
 ```
 
 ## Description du scanneur
