@@ -14,8 +14,6 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <pthread.h>
 
 #include <arpa/inet.h>
@@ -89,10 +87,7 @@ int get_svc_list(struct service *svc_list, int start_port, int end_port) {
 	char  line_port[8];
 	char  line_svc_name[32];
 	int p_index;
-	printf("TEST1\n");
-	// sizeof(line);
 	fgets(line, sizeof(line), services_file);
-	printf("TEST2\n");
 	while (fgets(line, sizeof(line), services_file) != NULL) {
 		if(! strstr(line, "/tcp")) continue;
 
@@ -143,28 +138,43 @@ int get_svc_list(struct service *svc_list, int start_port, int end_port) {
 void *display(struct service *svc_list, int start, int end) {
 	int choice = 1;
 
-	printf(
-		"\033[34;1mSEC108 TP1 - PORT SCANNER in C\033[0m\n"
-		"===============================\n"
-		"[1]\tShow only \033[92;1mopened\033[0m ports\n"
-		"[2]\tShow only \033[31;1mclosed\033[0m ports\n"
-		"[3]\tShow only all results (\033[4mWarning\033[0m: can be quite a long output depending on your port range\n\n"
-	);
+	while(choice != 0) {
+		printf(
+			"\033[34;1mSEC108 TP1 - PORT SCANNER in C\033[0m\n"
+			"===============================\n"
+			"[1]\tShow only \033[92;1mopened\033[0m ports\n"
+			"[2]\tShow only \033[31;1mclosed\033[0m ports\n"
+			"[3]\tShow only all results (\033[4mWarning\033[0m: can be quite a long output depending on your port range\n"
+		);
 
-	printf("Choice: ");
-	scanf("%d", &choice);
+		printf("Choice: ");
+		scanf("%d", &choice);
 
-	printf(
-		"\n"
-		"PORT\tSTATE\tSERVICE\n"
-		"-----------------------\n"
-	);
-	for(int i = 0 ; i < ((end - start) + 1) ; i++) {
-		char state_string[8];
-		if (svc_list[i].state == 1 && choice != 2) {
-			printf("%s\t\033[92;1mopened\033[0m\t%s\n", svc_list[i].port, svc_list[i].svc_name);
-		} else if (choice != 1) {
-			printf("%s\t\033[31;1mclosed\033[0m\t%s\n", svc_list[i].port, svc_list[i].svc_name);
+		printf(
+			"\n"
+			"PORT\tSTATE\tSERVICE\n"
+			"-----------------------\n"
+		);
+
+		for(int i = 0 ; i < ((end - start) + 1) ; i++) {
+			char state_string[8];
+			if (svc_list[i].state == 1 && choice != 2) {
+				printf("%s\t\033[92;1mopened\033[0m\t%s\n", svc_list[i].port, svc_list[i].svc_name);
+			} else if (choice != 1) {
+				printf("%s\t\033[31;1mclosed\033[0m\t%s\n", svc_list[i].port, svc_list[i].svc_name);
+			} 
+		}
+
+		printf(
+			"\n"
+			"[4]\tGo back to menu\n"
+			"[0]\tExit the program\n\n"
+		);
+		printf("Choice: ");
+		scanf("%d", &choice);
+		if(choice != 4 && choice != 0) {
+			fprintf(stderr, "ERROR: Unexpected input");
+			exit(1);
 		}
 	}
 }
@@ -197,8 +207,6 @@ void *scan_range(struct scan_args *args) {
 
 	int current_port;
 	for (current_port = start_port ; current_port <= end_port ; current_port++) {
-		printf("%s\n", args->hostname);
-		printf("PORT: %s\n",  svc_list[current_port - start_port].port);
 		if ((rv = getaddrinfo(args->hostname, svc_list[current_port - start_port].port, &hints, &servinfo)) != 0) {
 			fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
 		}
@@ -310,8 +318,6 @@ int main(int argc, char *argv[])
 	}
 
 	int port_slice = (end_port - start_port) / nb_threads;
-	printf("SLICE: %d\n", port_slice);
-	printf("TH: %d\n", nb_threads);
 	int last_end_port = start_port;
 	int i = 0;
 	
@@ -323,8 +329,6 @@ int main(int argc, char *argv[])
 		args->hints = hints;
 		args->start_port = start_port + (i * port_slice);
 		args->end_port = last_end_port + port_slice;
-		printf("START: %d\n", args->start_port);
-		printf("END: %d\n", args->end_port);
 		if (args->end_port > end_port) {
 			args->end_port = end_port;
 		}
